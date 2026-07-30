@@ -1,0 +1,402 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CONSIGNOR
+  CONSIGNEE
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum ProductStatus {
+  AVAILABLE
+  OUT_OF_STOCK
+  DISCONTINUED
+}
+
+enum ConsignmentStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COMPLETED
+  RETURNED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  POS
+}
+
+enum PaymentType {
+  CONSIGNOR_PAYOUT
+  CONSIGNEE_PAYMENT
+  OTHER
+}
+
+enum StockMovementType {
+  CONSIGNMENT_OUT
+  SALE
+  RETURN
+  RESTOCK
+  ADJUSTMENT
+}
+
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model User {
+  id            String     @id @default(uuid())
+  firstName     String
+  lastName      String
+  email         String     @unique
+  phone         String?    @unique
+  password      String
+  role          Role
+  status        UserStatus @default(ACTIVE)
+  isVerified    Boolean    @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile?
+
+  products             Product[]
+  consignmentsSent     Consignment[] @relation("ConsignorSent")
+  consignmentsReceived Consignment[] @relation("ConsigneeReceived")
+
+  sales Sale[] @relation("ConsigneeSales")
+
+  payments Payment[]
+
+  commissionsAsConsignor Commission[] @relation("ConsignorCommissions")
+  commissionsAsConsignee Commission[] @relation("ConsigneeCommissions")
+
+  notifications Notification[]
+  activityLogs  ActivityLog[]
+
+  @@index([role])
+  @@index([status])
+}
+
+model Profile {
+  id String @id @default(uuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  gender        String?
+  address       String?
+  city          String?
+  state         String?
+  profileImage  String?
+  bankName      String?
+  accountNumber String?
+  accountName   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Category {
+  id String @id @default(uuid())
+
+  name        String  @unique
+  description String?
+
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Product {
+  id String @id @default(uuid())
+
+  consignorId String
+  categoryId  String
+
+  consignor User     @relation(fields: [consignorId], references: [id], onDelete: Cascade)
+  category  Category @relation(fields: [categoryId], references: [id])
+
+  name        String
+  description String?
+
+  sku     String  @unique
+  barcode String? @unique
+
+  quantity Int @default(0)
+
+  unitPrice     Decimal  @db.Decimal(10, 2)
+  consignorRate Decimal? @db.Decimal(5, 2)
+  consigneeRate Decimal? @db.Decimal(5, 2)
+
+  status ProductStatus @default(AVAILABLE)
+
+  images           ProductImage[]
+  consignmentItems ConsignmentItem[]
+  saleItems        SaleItem[]
+  returns          Return[]
+  stockMovements   StockMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([consignorId])
+}
+
+model ProductImage {
+  id String @id @default(uuid())
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  url       String
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+}
+
+model Consignment {
+  id String @id @default(uuid())
+
+  code String @unique // CSG-1001
+
+  consignorId String
+  consignor   User   @relation("ConsignorSent", fields: [consignorId], references: [id], onDelete: Cascade)
+
+  consigneeId String
+  consignee   User   @relation("ConsigneeReceived", fields: [consigneeId], references: [id], onDelete: Cascade)
+
+  status ConsignmentStatus @default(PENDING)
+  notes  String?
+
+  totalQuantity Int     @default(0)
+  totalAmount   Decimal @default(0) @db.Decimal(10, 2)
+
+  items   ConsignmentItem[]
+  returns Return[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([consignorId])
+  @@index([consigneeId])
+  @@index([status])
+}
+
+model ConsignmentItem {
+  id String @id @default(uuid())
+
+  consignmentId String
+  consignment   Consignment @relation(fields: [consignmentId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  quantity         Int
+  quantitySold     Int @default(0)
+  quantityReturned Int @default(0)
+
+  unitPrice Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Sale {
+  id String @id @default(uuid())
+
+  receiptNumber String @unique // INV-10001
+
+  consigneeId String
+  consignee   User   @relation("ConsigneeSales", fields: [consigneeId], references: [id], onDelete: Cascade)
+
+  totalAmount       Decimal @db.Decimal(10, 2)
+  consignorEarnings Decimal @default(0) @db.Decimal(10, 2)
+  consigneeEarnings Decimal @default(0) @db.Decimal(10, 2)
+  adminEarnings     Decimal @default(0) @db.Decimal(10, 2)
+
+  paymentMethod PaymentMethod @default(CASH)
+  paymentStatus PaymentStatus @default(PAID)
+
+  customerName  String?
+  customerPhone String?
+  notes         String?
+
+  items       SaleItem[]
+  commissions Commission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([consigneeId])
+  @@index([createdAt])
+}
+
+model SaleItem {
+  id String @id @default(uuid())
+
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  quantity   Int
+  unitPrice  Decimal @db.Decimal(10, 2)
+  totalPrice Decimal @db.Decimal(10, 2)
+
+  consignorShare Decimal @db.Decimal(10, 2)
+  consigneeShare Decimal @db.Decimal(10, 2)
+  adminShare     Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+}
+
+model Payment {
+  id String @id @default(uuid())
+
+  reference String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  amount      Decimal       @db.Decimal(10, 2)
+  type        PaymentType   @default(CONSIGNOR_PAYOUT)
+  method      PaymentMethod @default(TRANSFER)
+  status      PaymentStatus @default(PENDING)
+  notes       String?
+  processedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Commission {
+  id String @id @default(uuid())
+
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  consignorId String
+  consignor   User   @relation("ConsignorCommissions", fields: [consignorId], references: [id], onDelete: Cascade)
+
+  consigneeId String
+  consignee   User   @relation("ConsigneeCommissions", fields: [consigneeId], references: [id], onDelete: Cascade)
+
+  saleAmount     Decimal @db.Decimal(10, 2)
+  consignorShare Decimal @db.Decimal(10, 2)
+  consigneeShare Decimal @db.Decimal(10, 2)
+  adminShare     Decimal @db.Decimal(10, 2)
+
+  isSettled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([consignorId])
+  @@index([consigneeId])
+}
+
+model Return {
+  id String @id @default(uuid())
+
+  returnNumber String @unique
+
+  consignmentId String?
+  consignment   Consignment? @relation(fields: [consignmentId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  quantity Int
+  reason   String
+
+  status ReturnStatus @default(PENDING)
+
+  requestedBy String
+  processedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model StockMovement {
+  id String @id @default(uuid())
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  type             StockMovementType
+  quantity         Int
+  previousQuantity Int
+  newQuantity      Int
+
+  reference   String?
+  notes       String?
+  createdById String?
+
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+model Notification {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title   String
+  message String
+  type    String  @default("INFO")
+  isRead  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ActivityLog {
+  id String @id @default(uuid())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action    String
+  entity    String?
+  entityId  String?
+  details   String?
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}

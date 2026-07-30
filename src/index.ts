@@ -1,52 +1,50 @@
 import express from 'express'
+import cors from 'cors'
+import helmet from 'helmet'
+import morgan from 'morgan'
 import path from 'path'
-import { fileURLToPath } from 'url'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+import routes from './routes/index.js'
+import { errorHandler } from './middleware/errorHandler.js'
+import { logger } from './config/logger.js'
+import { env } from './config/env.js'
 
 const app = express()
 
-// Home route - HTML
-app.get('/', (req, res) => {
-  res.type('html').send(`
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="utf-8"/>
-        <title>Express + Bun ${process.versions.bun} on Vercel</title>
-        <link rel="stylesheet" href="/style.css" />
-      </head>
-      <body>
-        <nav>
-          <a href="/">Home</a>
-          <a href="/about">About</a>
-          <a href="/api-data">API Data</a>
-          <a href="/healthz">Health</a>
-        </nav>
-        <h1>Welcome to Express + Bun ${process.versions.bun} on Vercel 🚀</h1>
-        <p>This is a minimal example without a database or forms.</p>
-        <img src="/logo.png" alt="Logo" width="120" />
-      </body>
-    </html>
-  `)
-})
+// Security and utility middleware
+app.use(helmet({ crossOriginResourcePolicy: false }))
+app.use(cors())
+app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
+app.use(morgan('dev'))
 
-app.get('/about', function (req, res) {
-  res.sendFile(path.join(__dirname, '..', 'components', 'about.htm'))
-})
+// Static folder for uploaded product images
+const uploadsPath = path.join(process.cwd(), 'uploads')
+app.use('/uploads', express.static(uploadsPath))
 
-// Example API endpoint - JSON
-app.get('/api-data', (req, res) => {
-  res.json({
-    message: 'Here is some sample API data',
-    items: ['apple', 'banana', 'cherry'],
+// Health check endpoint
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    service: 'Product Consignment Management API',
+    timestamp: new Date().toISOString(),
   })
 })
 
-// Health check
-app.get('/healthz', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() })
+app.get('/', (_req, res) => {
+  res.status(200).json({
+    message: 'Welcome to the Product Consignment Management API',
+    timestamp: new Date().toISOString(),
+  })
 })
+// Mount REST API routes
+app.use('/api', routes)
 
+// Global Error Handler
+app.use(errorHandler)
+
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(env.PORT, () => {
+    logger.info(`🚀 Product Consignment Server running on port ${env.PORT} in ${env.NODE_ENV} mode`)
+  })
+}
 export default app
