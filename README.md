@@ -1,162 +1,110 @@
-# Product Consignment Management System - Backend Server
+# ⚡ ConsignHub — Product Consignment Backend REST API
 
-A enterprise-grade REST API backend for the Product Consignment Management System, built with Node.js, Express, TypeScript, Prisma ORM, PostgreSQL, and Bun.
-
----
-
-## 🌟 Key Features
-
-* **Authentication & Authorization**: JWT Authentication with Role-Based Access Control (RBAC) supporting `ADMIN`, `CONSIGNOR`, and `CONSIGNEE` roles.
-* **Category & Product Management**: Full CRUD, image uploads (Multer), barcode & SKU tracking, custom commission rates, and inventory status management.
-* **Consignment Workflow**: Consignors send consignments to Consignees; Consignees accept/reject; automated stock reservation and tracking.
-* **Sales & Automated 3-Way Commission Split**: Consignees record sales; system automatically calculates and allocates revenue split between Consignor, Consignee, and System/Admin.
-* **Payouts & Payments**: Payout tracking for Consignors with balance calculations and payment status updates.
-* **Returns & Inventory Adjustments**: Product return workflow and stock movement audit log (`StockMovement`).
-* **Reports & Dashboards**: Summary metrics tailored for Admin, Consignor, and Consignee roles, plus sales and inventory reports.
-* **Notifications & Audit Logging**: Real-time action notifications and complete activity logs (`ActivityLog`).
+An enterprise-grade REST API backend for the **ConsignHub Product Consignment Management System**, built with **Node.js / Bun**, **Express 5**, **TypeScript**, **Prisma ORM**, and **PostgreSQL**.
 
 ---
 
-## 🏗 System Architecture
+## 🌟 Core Features & Business Logic
+
+- **Authentication & RBAC**: JWT-based authentication with strict Role-Based Access Control (`ADMIN`, `CONSIGNOR`, `CONSIGNEE`).
+- **Cash Payment Recording**: Restricted so that **only Consignors** can log cash payments received from consignees for sold goods. Consignee accounts (`payerId`) are credited, updating overall cash paid, outstanding balance due, and account status (`PAID IN FULL`, `PARTIALLY PAID`, `UNPAID`, `ADVANCE CREDIT`).
+- **Bidirectional Product Returns**: Both Consignors and Consignees can view return requests. Consignors can approve (`APPROVED`), reject (`REJECTED`), or mark returns completed (`COMPLETED`). Approved returns automatically restock product inventory in PostgreSQL via Prisma transactions and generate a `StockMovement` audit entry.
+- **Automated 3-Way Commission Split**: When sales are processed, revenue is split dynamically between Consignor share, Consignee commission, and System/Admin fee.
+- **Consignment Management**: Consignors dispatch products in consignment batches (`CSG-xxxx`); Consignees accept or reject incoming shipments.
+- **Profile & Payout Bank Details**: Users can update account info, payout bank details (Bank Name, Account Number, Account Name), and change passwords with bcrypt hashing.
+- **Audit Trails & Notifications**: Real-time action notifications and complete `ActivityLog` history.
+
+---
+
+## 🏗️ System Architecture
 
 ```text
 Express REST API
     │
-    ├── src/config/        # Environment, Prisma client, Winston logger
-    ├── src/middleware/    # Auth (JWT), RBAC, Zod Validator, Upload (Multer), Error Handler
-    ├── src/validators/    # Zod schemas for input validation
-    ├── src/services/      # Business logic & Prisma ORM queries
-    ├── src/controllers/   # HTTP request/response handlers
-    ├── src/routes/        # Express REST route definitions
-    └── prisma/            # Prisma Schema & Seed script
+    ├── src/config/        # Database setup (Prisma client), Winston logger
+    ├── src/controllers/   # HTTP request & response handlers
+    ├── src/middleware/    # JWT Auth, Role authorization, Zod validation, Error handler
+    ├── src/routes/        # Express route definitions
+    ├── src/services/      # Business logic & Prisma ORM transaction queries
+    ├── src/validators/    # Zod schemas for payload validation
+    └── prisma/            # Schema definition & database migrations
 ```
 
 ---
 
-## 🛠 Tech Stack
+## 🛠️ Tech Stack
 
-* **Runtime**: Bun / Node.js
-* **Framework**: Express.js 5
-* **Language**: TypeScript
-* **Database & ORM**: PostgreSQL & Prisma ORM
-* **Authentication**: JWT & bcryptjs
-* **Validation**: Zod
-* **Logger**: Winston & Morgan
-* **Security**: Helmet, CORS
+- **Runtime**: Bun / Node.js
+- **Framework**: Express.js 5
+- **Language**: TypeScript
+- **Database**: PostgreSQL
+- **ORM**: Prisma ORM v6
+- **Authentication**: JWT & bcryptjs
+- **Validation**: Zod
+- **Logging & Security**: Winston, Morgan, Helmet, CORS
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Setup & Execution
 
 ### 1. Install Dependencies
-
 ```bash
 bun install
+# or
+npm install
 ```
 
-### 2. Environment Setup
-
+### 2. Environment Configuration
 Copy `.env.example` to `.env`:
-
 ```bash
 cp .env.example .env
 ```
-
 Configure your PostgreSQL `DATABASE_URL` and `JWT_SECRET`.
 
-### 3. Generate Prisma Client & Run Database Migrations
-
+### 3. Generate Prisma Client & Run Database Push
 ```bash
 bun run prisma:generate
 bun run prisma:push
 ```
 
-### 4. Seed Initial Data (Optional)
-
-```bash
-bun run seed
-```
-
-Default accounts created:
-- **Admin**: `admin@consignment.com` / `Password123!`
-- **Consignor**: `consignor@consignment.com` / `Password123!`
-- **Consignee**: `consignee@consignment.com` / `Password123!`
-
-### 5. Run Development Server
-
+### 4. Run Development Server
 ```bash
 bun run dev
 ```
+The server will start on `http://localhost:5000`.
 
-Server starts on `http://localhost:5000`.
+### 5. Build for Production
+```bash
+bun run build
+```
 
 ---
 
-## 📡 API Endpoints Summary
+## 📡 Key API Endpoints Reference
 
-### Auth (`/api/auth`)
-* `POST /api/auth/register` - Register user (`ADMIN`, `CONSIGNOR`, `CONSIGNEE`)
-* `POST /api/auth/login` - Login & receive JWT token
-* `GET /api/auth/me` - Get current user profile
-* `PUT /api/auth/profile` - Update user profile details & banking info
-* `PUT /api/auth/change-password` - Change account password
+### 🔐 Authentication (`/api/auth`)
+- `POST /api/auth/register` — Register a new account (`CONSIGNOR` or `CONSIGNEE`)
+- `POST /api/auth/login` — Login and receive JWT access token
+- `GET /api/auth/me` — Retrieve current user profile & bank details
+- `PUT /api/auth/profile` — Update user profile and payout bank account details
+- `PUT /api/auth/change-password` — Secure password update
 
-### Users (`/api/users`) - Admin Only
-* `GET /api/users` - List users with filtering & pagination
-* `GET /api/users/:id` - Get user details
-* `PUT /api/users/:id/status` - Update user status (`ACTIVE`, `INACTIVE`, `SUSPENDED`)
-* `PUT /api/users/:id/role` - Update user role
-* `DELETE /api/users/:id` - Delete user
+### 💰 Cash Payments (`/api/payments`)
+- `POST /api/payments` — **Consignor Only**: Record cash payment received from consignee (`payerId`, `amount`, `category`, `notes`)
+- `GET /api/payments` — Get payment transaction history filtered by user role
+- `GET /api/payments/summary` — Retrieve real-time payment summary (Total Sales Value, Total Cash Paid, Outstanding Balance, Payment Status)
 
-### Categories (`/api/categories`)
-* `GET /api/categories` - List categories
-* `POST /api/categories` - Create category (Admin)
-* `PUT /api/categories/:id` - Update category (Admin)
-* `DELETE /api/categories/:id` - Delete category (Admin)
+### 🔄 Product Returns (`/api/returns`)
+- `POST /api/returns` — Create product return request (`productId`, `quantity`, `reason`)
+- `GET /api/returns` — List product returns (Role-filtered for Consignors and Consignees)
+- `PUT /api/returns/:id/status` — **Consignor/Admin**: Update return status (`APPROVED`, `REJECTED`, `COMPLETED`), auto-restocking stock into product inventory
 
-### Products (`/api/products`)
-* `GET /api/products` - List products with filter, search, & pagination
-* `GET /api/products/:id` - Get product details
-* `POST /api/products` - Create product with optional image upload
-* `PUT /api/products/:id` - Update product
-* `DELETE /api/products/:id` - Delete product
-* `POST /api/products/:id/images` - Upload additional product image
+### 📦 Consignments (`/api/consignments`)
+- `POST /api/consignments` — Consignor dispatches product batch to consignee
+- `GET /api/consignments` — List user consignments
+- `PUT /api/consignments/:id/status` — Consignee accepts or rejects consignment batch
 
-### Consignments (`/api/consignments`)
-* `POST /api/consignments` - Create consignment to a consignee
-* `GET /api/consignments` - List user consignments
-* `GET /api/consignments/:id` - View consignment details
-* `PUT /api/consignments/:id/status` - Accept/Reject consignment (Consignee)
-
-### Sales (`/api/sales`)
-* `POST /api/sales` - Record sale & auto-calculate commission split
-* `GET /api/sales` - List sales history
-* `GET /api/sales/:id` - Get sale invoice/receipt
-
-### Payments & Payouts (`/api/payments`)
-* `POST /api/payments` - Initiate payout (Admin)
-* `GET /api/payments` - List payment transactions
-* `PUT /api/payments/:id/status` - Update payment status (`PAID`, `FAILED`)
-
-### Commissions (`/api/commissions`)
-* `GET /api/commissions` - List commission breakdown per transaction
-* `GET /api/commissions/summary` - Summary of total earnings, payouts, & balance
-
-### Returns (`/api/returns`)
-* `POST /api/returns` - Create product return request
-* `GET /api/returns` - List return requests
-* `PUT /api/returns/:id/status` - Approve/Reject return & restock inventory
-
-### Inventory (`/api/inventory`)
-* `GET /api/inventory/overview` - Inventory stock metrics
-* `GET /api/inventory/movements` - Stock movement audit log
-* `POST /api/inventory/:id/adjust` - Manual stock adjustment
-
-### Reports (`/api/reports`)
-* `GET /api/reports/dashboard` - Role-customized dashboard metrics
-* `GET /api/reports/sales` - Comprehensive sales report (Admin)
-
-### Notifications & Activity Logs
-* `GET /api/notifications` - Get notifications
-* `PUT /api/notifications/read-all` - Mark notifications as read
-* `GET /api/activity-logs` - View system activity audit log (Admin)
+### 🛍️ Products & Categories (`/api/products`, `/api/categories`)
+- `GET /api/products` — Browse products with search & status filters
+- `POST /api/products` — Create product with unit price and commission rates
+- `GET /api/categories` — List product categories

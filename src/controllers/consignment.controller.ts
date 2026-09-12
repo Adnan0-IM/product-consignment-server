@@ -4,6 +4,18 @@ import { sendSuccess } from '../utils/response.js'
 import { AuthenticatedRequest } from '../middleware/auth.js'
 
 export class ConsignmentController {
+  static async requestConsignment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const consignment = await ConsignmentService.requestConsignment(
+        req.user!.userId,
+        req.body
+      )
+      return sendSuccess(res, 'Consignment requested successfully', consignment, 201)
+    } catch (error) {
+      next(error)
+    }
+  }
+
   static async createConsignment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const consignment = await ConsignmentService.createConsignment(

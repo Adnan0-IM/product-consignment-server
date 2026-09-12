@@ -4,8 +4,9 @@ export const createProductSchema = z.object({
   body: z.object({
     name: z.string().min(2, 'Product name is required'),
     description: z.string().optional(),
-    categoryId: z.string().uuid('Invalid category ID'),
-    sku: z.string().min(2, 'SKU is required'),
+    categoryId: z.string().optional(),
+    categoryIds: z.array(z.string()).optional(),
+    sku: z.string().optional(),
     barcode: z.string().optional(),
     quantity: z.number().int().min(0).default(0),
     unitPrice: z.number().positive('Price must be greater than 0'),
@@ -18,7 +19,8 @@ export const updateProductSchema = z.object({
   body: z.object({
     name: z.string().optional(),
     description: z.string().optional(),
-    categoryId: z.string().uuid().optional(),
+    categoryId: z.string().optional(),
+    categoryIds: z.array(z.string()).optional(),
     sku: z.string().optional(),
     barcode: z.string().optional(),
     quantity: z.number().int().min(0).optional(),

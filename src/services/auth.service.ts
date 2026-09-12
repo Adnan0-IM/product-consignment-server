@@ -21,7 +21,7 @@ export class AuthService {
     }
 
     if (data.phone) {
-      const existingPhone = await prisma.user.findUnique({
+      const existingPhone = await prisma.user.findFirst({
         where: { phone: data.phone },
       })
       if (existingPhone) {

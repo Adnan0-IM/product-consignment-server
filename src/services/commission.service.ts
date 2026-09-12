@@ -8,7 +8,7 @@ export class CommissionService {
     limit?: number
   }) {
     const page = Number(query.page) || 1
-    const limit = Number(query.limit) || 10
+    const limit = Number(query.limit) || 100
     const skip = (page - 1) * limit
 
     const where: any = {}
@@ -53,18 +53,12 @@ export class CommissionService {
       })
 
       const paidPayments = await prisma.payment.aggregate({
-        where: { userId, status: 'PAID', type: 'CONSIGNOR_PAYOUT' },
-        _sum: { amount: true },
-      })
-
-      const pendingPayments = await prisma.payment.aggregate({
-        where: { userId, status: 'PENDING', type: 'CONSIGNOR_PAYOUT' },
+        where: { receiverId: userId, status: 'PAID' },
         _sum: { amount: true },
       })
 
       const totalEarned = Number(commissions._sum.consignorShare || 0)
-      const totalPaid = Number(paidPayments._sum.amount || 0)
-      const totalPendingPayout = Number(pendingPayments._sum.amount || 0)
+      const totalPaid = Number(paidPayments._sum?.amount || 0)
       const outstandingBalance = Math.max(0, totalEarned - totalPaid)
 
       return {
@@ -72,47 +66,27 @@ export class CommissionService {
         totalSalesAmount: Number(commissions._sum.saleAmount || 0),
         totalEarned,
         totalPaidOut: totalPaid,
-        pendingPayout: totalPendingPayout,
+        pendingPayout: 0,
         outstandingBalance,
       }
     }
 
-    if (userRole === 'CONSIGNEE') {
-      const commissions = await prisma.commission.aggregate({
-        where: { consigneeId: userId },
-        _sum: { consigneeShare: true, saleAmount: true },
-      })
+    // CONSIGNEE Summary
+    const commissions = await prisma.commission.aggregate({
+      where: { consigneeId: userId },
+      _sum: { consigneeShare: true, saleAmount: true },
+    })
 
-      return {
-        role: 'CONSIGNEE',
-        totalSalesAmount: Number(commissions._sum.saleAmount || 0),
-        totalCommissionEarned: Number(commissions._sum.consigneeShare || 0),
-      }
-    }
-
-    // ADMIN summary
-    const [allCommissions, allPaidPayouts] = await Promise.all([
-      prisma.commission.aggregate({
-        _sum: {
-          saleAmount: true,
-          consignorShare: true,
-          consigneeShare: true,
-          adminShare: true,
-        },
-      }),
-      prisma.payment.aggregate({
-        where: { status: 'PAID' },
-        _sum: { amount: true },
-      }),
-    ])
+    const paidPayments = await prisma.payment.aggregate({
+      where: { payerId: userId, status: 'PAID' },
+      _sum: { amount: true },
+    })
 
     return {
-      role: 'ADMIN',
-      totalGrossSales: Number(allCommissions._sum.saleAmount || 0),
-      totalConsignorEarnings: Number(allCommissions._sum.consignorShare || 0),
-      totalConsigneeEarnings: Number(allCommissions._sum.consigneeShare || 0),
-      totalAdminPlatformRevenue: Number(allCommissions._sum.adminShare || 0),
-      totalPayoutsDisbursed: Number(allPaidPayouts._sum.amount || 0),
+      role: 'CONSIGNEE',
+      totalSalesAmount: Number(commissions._sum.saleAmount || 0),
+      totalCommissionEarned: Number(commissions._sum.consigneeShare || 0),
+      totalPaidOut: Number(paidPayments._sum?.amount || 0),
     }
   }
 }

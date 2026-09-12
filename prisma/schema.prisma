@@ -8,7 +8,6 @@ datasource db {
 }
 
 enum Role {
-  ADMIN
   CONSIGNOR
   CONSIGNEE
 }
@@ -26,29 +25,27 @@ enum ProductStatus {
 }
 
 enum ConsignmentStatus {
-  PENDING
+  REQUESTED
   ACCEPTED
   REJECTED
+  DISPATCHED
   COMPLETED
-  RETURNED
+  CANCELLED
 }
 
 enum PaymentStatus {
-  PENDING
   PAID
+  PENDING
   FAILED
 }
 
 enum PaymentMethod {
   CASH
-  TRANSFER
-  POS
 }
 
-enum PaymentType {
-  CONSIGNOR_PAYOUT
-  CONSIGNEE_PAYMENT
-  OTHER
+enum PaymentCategory {
+  SETTLEMENT
+  ADVANCE
 }
 
 enum StockMovementType {
@@ -67,15 +64,15 @@ enum ReturnStatus {
 }
 
 model User {
-  id            String     @id @default(uuid())
-  firstName     String
-  lastName      String
-  email         String     @unique
-  phone         String?    @unique
-  password      String
-  role          Role
-  status        UserStatus @default(ACTIVE)
-  isVerified    Boolean    @default(false)
+  id         String     @id @default(uuid())
+  firstName  String
+  lastName   String
+  email      String     @unique
+  phone      String?    
+  password   String
+  role       Role
+  status     UserStatus @default(ACTIVE)
+  isVerified Boolean    @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -88,7 +85,8 @@ model User {
 
   sales Sale[] @relation("ConsigneeSales")
 
-  payments Payment[]
+  paymentsMade     Payment[] @relation("PaymentsMade")
+  paymentsReceived Payment[] @relation("PaymentsReceived")
 
   commissionsAsConsignor Commission[] @relation("ConsignorCommissions")
   commissionsAsConsignee Commission[] @relation("ConsigneeCommissions")
@@ -135,15 +133,14 @@ model Product {
   id String @id @default(uuid())
 
   consignorId String
-  categoryId  String
+  consignor   User   @relation(fields: [consignorId], references: [id], onDelete: Cascade)
 
-  consignor User     @relation(fields: [consignorId], references: [id], onDelete: Cascade)
-  category  Category @relation(fields: [categoryId], references: [id])
+  categories Category[]
 
   name        String
   description String?
 
-  sku     String  @unique
+  sku     String? @unique
   barcode String? @unique
 
   quantity Int @default(0)
@@ -163,7 +160,6 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([categoryId])
   @@index([consignorId])
 }
 
@@ -190,7 +186,7 @@ model Consignment {
   consigneeId String
   consignee   User   @relation("ConsigneeReceived", fields: [consigneeId], references: [id], onDelete: Cascade)
 
-  status ConsignmentStatus @default(PENDING)
+  status ConsignmentStatus @default(REQUESTED)
   notes  String?
 
   totalQuantity Int     @default(0)
@@ -281,21 +277,23 @@ model Payment {
 
   reference String @unique
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payerId String
+  payer   User   @relation("PaymentsMade", fields: [payerId], references: [id], onDelete: Cascade)
 
-  amount      Decimal       @db.Decimal(10, 2)
-  type        PaymentType   @default(CONSIGNOR_PAYOUT)
-  method      PaymentMethod @default(TRANSFER)
-  status      PaymentStatus @default(PENDING)
-  notes       String?
-  processedAt DateTime?
+  receiverId String
+  receiver   User   @relation("PaymentsReceived", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  amount   Decimal         @db.Decimal(10, 2)
+  category PaymentCategory @default(SETTLEMENT)
+  method   PaymentMethod   @default(CASH)
+  status   PaymentStatus   @default(PAID)
+  notes    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([userId])
-  @@index([status])
+  @@index([payerId])
+  @@index([receiverId])
 }
 
 model Commission {

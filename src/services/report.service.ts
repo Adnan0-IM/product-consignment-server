@@ -2,49 +2,6 @@ import { prisma } from '../config/prisma.js'
 
 export class ReportService {
   static async getDashboard(userId: string, role: string) {
-    if (role === 'ADMIN') {
-      const [
-        totalUsers,
-        totalConsignors,
-        totalConsignees,
-        totalProducts,
-        totalSales,
-        totalRevenue,
-        pendingConsignments,
-      ] = await Promise.all([
-        prisma.user.count(),
-        prisma.user.count({ where: { role: 'CONSIGNOR' } }),
-        prisma.user.count({ where: { role: 'CONSIGNEE' } }),
-        prisma.product.count(),
-        prisma.sale.count(),
-        prisma.sale.aggregate({ _sum: { totalAmount: true, adminEarnings: true } }),
-        prisma.consignment.count({ where: { status: 'PENDING' } }),
-      ])
-
-      const recentSales = await prisma.sale.findMany({
-        take: 5,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          consignee: { select: { firstName: true, lastName: true } },
-        },
-      })
-
-      return {
-        role: 'ADMIN',
-        metrics: {
-          totalUsers,
-          totalConsignors,
-          totalConsignees,
-          totalProducts,
-          totalSales,
-          totalGrossVolume: Number(totalRevenue._sum.totalAmount || 0),
-          totalPlatformRevenue: Number(totalRevenue._sum.adminEarnings || 0),
-          pendingConsignments,
-        },
-        recentSales,
-      }
-    }
-
     if (role === 'CONSIGNOR') {
       const [
         myProductsCount,

@@ -15,9 +15,9 @@ export class ReturnController {
 
   static async getReturns(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const requestedBy = req.user!.role === 'ADMIN' ? undefined : req.user!.userId
       const result = await ReturnService.getReturns({
-        requestedBy,
+        userId: req.user!.userId,
+        userRole: req.user!.role,
         ...req.query,
       } as any)
       return sendSuccess(res, 'Returns list retrieved', result.returns, 200, result.meta)

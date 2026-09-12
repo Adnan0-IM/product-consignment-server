@@ -13,7 +13,7 @@ router.get('/:id', SaleController.getSaleById)
 
 router.post(
   '/',
-  authorize('ADMIN', 'CONSIGNEE'),
+  authorize('CONSIGNEE'),
   validateRequest(createSaleSchema),
   SaleController.recordSale
 )

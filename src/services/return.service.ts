@@ -14,6 +14,7 @@ export class ReturnService {
   ) {
     const product = await prisma.product.findUnique({
       where: { id: data.productId },
+      include: { consignor: true },
     })
 
     if (!product) {
@@ -33,26 +34,59 @@ export class ReturnService {
         requestedBy,
       },
       include: {
-        product: { select: { name: true, sku: true } },
+        product: { select: { id: true, name: true, sku: true, consignorId: true } },
       },
     })
+
+    // Notify consignor if requested by consignee, or consignee if requested by consignor
+    const requestingUser = await prisma.user.findUnique({ where: { id: requestedBy } })
+    const targetUserId = requestingUser?.role === 'CONSIGNEE' ? product.consignorId : requestedBy
+
+    if (targetUserId && targetUserId !== requestedBy) {
+      await prisma.notification.create({
+        data: {
+          userId: targetUserId,
+          title: 'New Return Request',
+          message: `Return request ${returnNumber} initiated for ${product.name} (${data.quantity} pcs).`,
+          type: 'INFO',
+        },
+      })
+    }
 
     return returnRecord
   }
 
   static async getReturns(query: {
+    userId?: string
+    userRole?: string
     requestedBy?: string
     status?: ReturnStatus
     page?: number
     limit?: number
   }) {
     const page = Number(query.page) || 1
-    const limit = Number(query.limit) || 10
+    const limit = Number(query.limit) || 100
     const skip = (page - 1) * limit
 
     const where: any = {}
-    if (query.requestedBy) where.requestedBy = query.requestedBy
-    if (query.status) where.status = query.status
+
+    if (query.status) {
+      where.status = query.status
+    }
+
+    if (query.userRole === 'CONSIGNOR' && query.userId) {
+      where.OR = [
+        { product: { consignorId: query.userId } },
+        { requestedBy: query.userId },
+      ]
+    } else if (query.userRole === 'CONSIGNEE' && query.userId) {
+      where.OR = [
+        { requestedBy: query.userId },
+        { consignment: { consigneeId: query.userId } },
+      ]
+    } else if (query.requestedBy) {
+      where.requestedBy = query.requestedBy
+    }
 
     const [returns, total] = await Promise.all([
       prisma.return.findMany({
@@ -132,6 +166,16 @@ export class ReturnService {
           processedBy,
         },
         include: { product: true },
+      })
+
+      // Send notification to requesting user
+      await tx.notification.create({
+        data: {
+          userId: returnRecord.requestedBy,
+          title: `Return Request ${status}`,
+          message: `Return request ${returnRecord.returnNumber} for ${returnRecord.product.name} has been set to ${status}.`,
+          type: status === 'APPROVED' || status === 'COMPLETED' ? 'SUCCESS' : 'WARNING',
+        },
       })
 
       return updated

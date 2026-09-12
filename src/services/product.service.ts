@@ -12,13 +12,17 @@ export class ProductService {
     limit?: number
   }) {
     const page = Number(query.page) || 1
-    const limit = Number(query.limit) || 10
+    const limit = Number(query.limit) || 100
     const skip = (page - 1) * limit
 
     const where: any = {}
 
     if (query.consignorId) where.consignorId = query.consignorId
-    if (query.categoryId) where.categoryId = query.categoryId
+    if (query.categoryId) {
+      where.categories = {
+        some: { id: query.categoryId },
+      }
+    }
     if (query.status) where.status = query.status
 
     if (query.search) {
@@ -37,7 +41,7 @@ export class ProductService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          category: true,
+          categories: true,
           consignor: {
             select: {
               id: true,
@@ -67,7 +71,7 @@ export class ProductService {
     const product = await prisma.product.findUnique({
       where: { id },
       include: {
-        category: true,
+        categories: true,
         consignor: {
           select: {
             id: true,
@@ -97,8 +101,9 @@ export class ProductService {
     data: {
       name: string
       description?: string
-      categoryId: string
-      sku: string
+      categoryId?: string
+      categoryIds?: string[]
+      sku?: string
       barcode?: string
       quantity?: number
       unitPrice: number
@@ -107,21 +112,25 @@ export class ProductService {
       imageUrl?: string
     }
   ) {
+    // Generate SKU if not provided
+    const skuToUse = data.sku && data.sku.trim() !== ''
+      ? data.sku.trim()
+      : `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
+
     const existingSku = await prisma.product.findUnique({
-      where: { sku: data.sku },
+      where: { sku: skuToUse },
     })
 
     if (existingSku) {
       throw new ConflictError('Product with this SKU already exists')
     }
 
-    if (data.barcode) {
-      const existingBarcode = await prisma.product.findUnique({
-        where: { barcode: data.barcode },
-      })
-      if (existingBarcode) {
-        throw new ConflictError('Product with this barcode already exists')
-      }
+    // Determine category IDs to connect
+    let connectCategoryIds: string[] = []
+    if (data.categoryIds && Array.isArray(data.categoryIds) && data.categoryIds.length > 0) {
+      connectCategoryIds = data.categoryIds
+    } else if (data.categoryId) {
+      connectCategoryIds = [data.categoryId]
     }
 
     const initialQuantity = data.quantity || 0
@@ -129,16 +138,18 @@ export class ProductService {
     const product = await prisma.product.create({
       data: {
         consignorId,
-        categoryId: data.categoryId,
         name: data.name,
         description: data.description,
-        sku: data.sku,
+        sku: skuToUse,
         barcode: data.barcode,
         quantity: initialQuantity,
         unitPrice: data.unitPrice,
         consignorRate: data.consignorRate,
         consigneeRate: data.consigneeRate,
         status: initialQuantity > 0 ? 'AVAILABLE' : 'OUT_OF_STOCK',
+        categories: connectCategoryIds.length > 0
+          ? { connect: connectCategoryIds.map((id) => ({ id })) }
+          : undefined,
         images: data.imageUrl
           ? {
               create: {
@@ -149,7 +160,7 @@ export class ProductService {
           : undefined,
       },
       include: {
-        category: true,
+        categories: true,
         images: true,
       },
     })
@@ -179,6 +190,7 @@ export class ProductService {
       name?: string
       description?: string
       categoryId?: string
+      categoryIds?: string[]
       sku?: string
       barcode?: string
       quantity?: number
@@ -206,11 +218,27 @@ export class ProductService {
       }
     }
 
+    let categoriesUpdate: any = undefined
+    if (data.categoryIds && Array.isArray(data.categoryIds)) {
+      categoriesUpdate = {
+        set: data.categoryIds.map((catId) => ({ id: catId })),
+      }
+    } else if (data.categoryId) {
+      categoriesUpdate = {
+        set: [{ id: data.categoryId }],
+      }
+    }
+
+    const { categoryId, categoryIds, ...cleanData } = data
+
     const updatedProduct = await prisma.product.update({
       where: { id },
-      data,
+      data: {
+        ...cleanData,
+        categories: categoriesUpdate,
+      },
       include: {
-        category: true,
+        categories: true,
         images: true,
       },
     })

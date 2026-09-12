@@ -10,8 +10,8 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env.local') })
 
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
-  PORT: parseInt(process.env.PORT || '5000', 10),
-  DATABASE_URL: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/product_consignment?schema=public',
+  PORT: parseInt(process.env.PORT || '3000', 10),
+  DATABASE_URL: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/p-consignment?schema=public',
   JWT_SECRET: process.env.JWT_SECRET || 'super-secret-jwt-key-product-consignment-2026',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
   DEFAULT_CONSIGNOR_COMMISSION: parseFloat(process.env.DEFAULT_CONSIGNOR_COMMISSION || '70.0'), // 70% to consignor

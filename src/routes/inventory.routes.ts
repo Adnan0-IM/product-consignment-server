@@ -11,7 +11,7 @@ router.get('/movements', InventoryController.getStockMovements)
 
 router.post(
   '/:id/adjust',
-  authorize('ADMIN', 'CONSIGNOR'),
+  authorize('CONSIGNOR'),
   InventoryController.adjustStock
 )
 

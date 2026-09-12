@@ -12,26 +12,26 @@ router.use(authenticate)
 
 router.post(
   '/',
-  authorize('ADMIN', 'CONSIGNOR'),
+  authorize('CONSIGNOR'),
   upload.single('image'),
   ProductController.createProduct
 )
 
 router.put(
   '/:id',
-  authorize('ADMIN', 'CONSIGNOR'),
+  authorize('CONSIGNOR'),
   ProductController.updateProduct
 )
 
 router.delete(
   '/:id',
-  authorize('ADMIN', 'CONSIGNOR'),
+  authorize('CONSIGNOR'),
   ProductController.deleteProduct
 )
 
 router.post(
   '/:id/images',
-  authorize('ADMIN', 'CONSIGNOR'),
+  authorize('CONSIGNOR'),
   upload.single('image'),
   ProductController.uploadImage
 )

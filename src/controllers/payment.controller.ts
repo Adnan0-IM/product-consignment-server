@@ -3,11 +3,30 @@ import { PaymentService } from '../services/payment.service.js'
 import { sendSuccess } from '../utils/response.js'
 import { AuthenticatedRequest } from '../middleware/auth.js'
 
+import { ForbiddenError, BadRequestError } from '../utils/errors.js'
+
 export class PaymentController {
   static async createPayment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const payment = await PaymentService.createPayment(req.body)
-      return sendSuccess(res, 'Payment created successfully', payment, 201)
+      if (req.user!.role !== 'CONSIGNOR') {
+        throw new ForbiddenError('Only consignors can record cash payments')
+      }
+
+      const consignorId = req.user!.userId
+      const payerId = req.body.payerId || req.body.receiverId
+
+      if (!payerId) {
+        throw new BadRequestError('Consignee (payer) ID is required')
+      }
+
+      const payment = await PaymentService.createPayment({
+        payerId,
+        receiverId: consignorId,
+        amount: Number(req.body.amount),
+        category: req.body.category,
+        notes: req.body.notes,
+      })
+      return sendSuccess(res, 'Cash payment recorded successfully', payment, 201)
     } catch (error) {
       next(error)
     }
@@ -26,14 +45,13 @@ export class PaymentController {
     }
   }
 
-  static async updatePaymentStatus(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  static async getSummary(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const payment = await PaymentService.updatePaymentStatus(
-        req.params.id,
-        req.body.status,
-        req.body.notes
+      const summary = await PaymentService.getPaymentSummary(
+        req.user!.userId,
+        req.user!.role
       )
-      return sendSuccess(res, 'Payment status updated', payment)
+      return sendSuccess(res, 'Payment summary retrieved', summary)
     } catch (error) {
       next(error)
     }

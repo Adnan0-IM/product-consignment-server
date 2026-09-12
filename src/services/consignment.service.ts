@@ -3,6 +3,89 @@ import { NotFoundError, BadRequestError, ForbiddenError } from '../utils/errors.
 import { ConsignmentStatus } from '@prisma/client'
 
 export class ConsignmentService {
+  // Consignee requests products from Consignor
+  static async requestConsignment(
+    consigneeId: string,
+    data: {
+      consignorId: string
+      notes?: string
+      items: Array<{
+        productId: string
+        quantity: number
+      }>
+    }
+  ) {
+    const consignor = await prisma.user.findUnique({
+      where: { id: data.consignorId },
+    })
+
+    if (!consignor || consignor.role !== 'CONSIGNOR') {
+      throw new BadRequestError('Invalid consignor user specified')
+    }
+
+    let totalQuantity = 0
+    let totalAmount = 0
+    const itemsData: any[] = []
+
+    for (const item of data.items) {
+      const product = await prisma.product.findUnique({
+        where: { id: item.productId },
+      })
+      if (!product) {
+        throw new NotFoundError(`Product ${item.productId} not found`)
+      }
+
+      const unitPrice = Number(product.unitPrice)
+      totalQuantity += item.quantity
+      totalAmount += item.quantity * unitPrice
+
+      itemsData.push({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: unitPrice,
+      })
+    }
+
+    const consignmentCode = `CSG-${Date.now().toString().slice(-6)}`
+
+    const consignment = await prisma.$transaction(async (tx) => {
+      const created = await tx.consignment.create({
+        data: {
+          code: consignmentCode,
+          consignorId: data.consignorId,
+          consigneeId,
+          status: 'REQUESTED',
+          notes: data.notes,
+          totalQuantity,
+          totalAmount,
+          items: {
+            create: itemsData,
+          },
+        },
+        include: {
+          items: { include: { product: true } },
+          consignor: { select: { id: true, firstName: true, lastName: true, email: true } },
+          consignee: { select: { id: true, firstName: true, lastName: true, email: true } },
+        },
+      })
+
+      // Send Notification to Consignor
+      await tx.notification.create({
+        data: {
+          userId: data.consignorId,
+          title: 'New Product Request from Consignee',
+          message: `Consignee ${created.consignee.firstName} ${created.consignee.lastName} requested ${totalQuantity} items (${consignmentCode})`,
+          type: 'INFO',
+        },
+      })
+
+      return created
+    })
+
+    return consignment
+  }
+
+  // Consignor dispatches directly
   static async createConsignment(
     consignorId: string,
     data: {
@@ -54,6 +137,7 @@ export class ConsignmentService {
           code: consignmentCode,
           consignorId,
           consigneeId: data.consigneeId,
+          status: 'ACCEPTED',
           notes: data.notes,
           totalQuantity,
           totalAmount,
@@ -72,12 +156,40 @@ export class ConsignmentService {
         },
       })
 
-      // Send Notification to Consignee
+      // Deduct stock immediately for direct consignor dispatch
+      for (const item of data.items) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } })
+        if (product) {
+          const newQty = product.quantity - item.quantity
+          await tx.product.update({
+            where: { id: product.id },
+            data: {
+              quantity: newQty,
+              status: newQty === 0 ? 'OUT_OF_STOCK' : product.status,
+            },
+          })
+
+          await tx.stockMovement.create({
+            data: {
+              productId: product.id,
+              type: 'CONSIGNMENT_OUT',
+              quantity: item.quantity,
+              previousQuantity: product.quantity,
+              newQuantity: newQty,
+              reference: consignmentCode,
+              notes: `Consigned to ${created.consignee.firstName}`,
+              createdById: consignorId,
+            },
+          })
+        }
+      }
+
+      // Notification
       await tx.notification.create({
         data: {
           userId: data.consigneeId,
-          title: 'New Consignment Received',
-          message: `You have received a new consignment (${consignmentCode}) from ${created.consignor.firstName} ${created.consignor.lastName}`,
+          title: 'New Consignment Dispatched',
+          message: `Consignment (${consignmentCode}) from ${created.consignor.firstName} has been dispatched to you`,
           type: 'INFO',
         },
       })
@@ -96,7 +208,7 @@ export class ConsignmentService {
     limit?: number
   }) {
     const page = Number(query.page) || 1
-    const limit = Number(query.limit) || 10
+    const limit = Number(query.limit) || 100
     const skip = (page - 1) * limit
 
     const where: any = {}
@@ -118,9 +230,9 @@ export class ConsignmentService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          consignor: { select: { id: true, firstName: true, lastName: true, email: true } },
-          consignee: { select: { id: true, firstName: true, lastName: true, email: true } },
-          items: { include: { product: true } },
+          consignor: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+          consignee: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+          items: { include: { product: { include: { categories: true, images: true } } } },
         },
       }),
       prisma.consignment.count({ where }),
@@ -143,7 +255,7 @@ export class ConsignmentService {
       include: {
         consignor: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
         consignee: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
-        items: { include: { product: { include: { category: true, images: true } } } },
+        items: { include: { product: { include: { categories: true, images: true } } } },
         returns: true,
       },
     })
@@ -153,7 +265,6 @@ export class ConsignmentService {
     }
 
     if (
-      userRole !== 'ADMIN' &&
       consignment.consignorId !== userId &&
       consignment.consigneeId !== userId
     ) {
@@ -179,8 +290,8 @@ export class ConsignmentService {
       throw new NotFoundError('Consignment not found')
     }
 
-    if (userRole === 'CONSIGNEE' && consignment.consigneeId !== userId) {
-      throw new ForbiddenError('Only the assigned consignee can accept or reject this consignment')
+    if (userRole === 'CONSIGNOR' && consignment.consignorId !== userId) {
+      throw new ForbiddenError('Only the assigned consignor can update this consignment')
     }
 
     if (consignment.status === status) {
@@ -188,12 +299,12 @@ export class ConsignmentService {
     }
 
     return prisma.$transaction(async (tx) => {
-      // If ACCEPTED, transfer/reserve stock movement
-      if (status === 'ACCEPTED' && consignment.status === 'PENDING') {
+      // If Consignor accepts a REQUESTED consignment, reserve and deduct product stock
+      if (status === 'ACCEPTED' && consignment.status === 'REQUESTED') {
         for (const item of consignment.items) {
           const product = item.product
           if (product.quantity < item.quantity) {
-            throw new BadRequestError(`Product ${product.name} has insufficient stock to fulfill consignment`)
+            throw new BadRequestError(`Product ${product.name} has insufficient stock to fulfill request`)
           }
 
           const newQty = product.quantity - item.quantity
@@ -214,7 +325,7 @@ export class ConsignmentService {
               previousQuantity: product.quantity,
               newQuantity: newQty,
               reference: consignment.code,
-              notes: `Consigned to consignee (Consignment: ${consignment.code})`,
+              notes: `Consignment request accepted & handed over`,
               createdById: userId,
             },
           })
@@ -234,13 +345,14 @@ export class ConsignmentService {
         },
       })
 
-      // Notify Consignor
+      // Notify Consignee / Consignor
+      const recipientId = userRole === 'CONSIGNOR' ? consignment.consigneeId : consignment.consignorId
       await tx.notification.create({
         data: {
-          userId: consignment.consignorId,
+          userId: recipientId,
           title: `Consignment ${status}`,
           message: `Consignment ${consignment.code} status changed to ${status}`,
-          type: status === 'ACCEPTED' ? 'SUCCESS' : 'WARNING',
+          type: status === 'ACCEPTED' ? 'SUCCESS' : 'INFO',
         },
       })
 

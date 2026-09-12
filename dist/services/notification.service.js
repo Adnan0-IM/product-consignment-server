@@ -1,0 +1,22 @@
+import { prisma } from '../config/prisma.js';
+export class NotificationService {
+    static async getNotifications(userId) {
+        return prisma.notification.findMany({
+            where: { userId },
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+        });
+    }
+    static async markAsRead(id, userId) {
+        return prisma.notification.updateMany({
+            where: { id, userId },
+            data: { isRead: true },
+        });
+    }
+    static async markAllAsRead(userId) {
+        return prisma.notification.updateMany({
+            where: { userId, isRead: false },
+            data: { isRead: true },
+        });
+    }
+}

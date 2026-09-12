@@ -1,0 +1,97 @@
+import { ProductService } from '../services/product.service.js';
+import { sendSuccess } from '../utils/response.js';
+export class ProductController {
+    static async getProducts(req, res, next) {
+        try {
+            const query = { ...req.query };
+            // If user is a consignor viewing list without explicit admin override, restrict to own products
+            if (req.user?.role === 'CONSIGNOR') {
+                query.consignorId = req.user.userId;
+            }
+            const result = await ProductService.getProducts(query);
+            return sendSuccess(res, 'Products retrieved successfully', result.products, 200, result.meta);
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async getProductById(req, res, next) {
+        try {
+            const product = await ProductService.getProductById(req.params.id);
+            return sendSuccess(res, 'Product details retrieved', product);
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async createProduct(req, res, next) {
+        try {
+            const consignorId = req.body.consignorId || req.user.userId;
+            let imageUrl;
+            if (req.file) {
+                imageUrl = `/uploads/${req.file.filename}`;
+            }
+            let categoryIds = undefined;
+            if (req.body.categoryIds) {
+                if (Array.isArray(req.body.categoryIds)) {
+                    categoryIds = req.body.categoryIds;
+                }
+                else if (typeof req.body.categoryIds === 'string') {
+                    categoryIds = req.body.categoryIds.split(',').map((id) => id.trim()).filter(Boolean);
+                }
+            }
+            else if (req.body.categoryId) {
+                categoryIds = [req.body.categoryId];
+            }
+            const product = await ProductService.createProduct(consignorId, {
+                ...req.body,
+                categoryIds,
+                quantity: req.body.quantity ? Number(req.body.quantity) : 0,
+                unitPrice: Number(req.body.unitPrice),
+                consignorRate: req.body.consignorRate ? Number(req.body.consignorRate) : undefined,
+                consigneeRate: req.body.consigneeRate ? Number(req.body.consigneeRate) : undefined,
+                imageUrl,
+            });
+            return sendSuccess(res, 'Product created successfully', product, 201);
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async updateProduct(req, res, next) {
+        try {
+            const product = await ProductService.updateProduct(req.params.id, req.user.userId, req.user.role, {
+                ...req.body,
+                quantity: req.body.quantity !== undefined ? Number(req.body.quantity) : undefined,
+                unitPrice: req.body.unitPrice !== undefined ? Number(req.body.unitPrice) : undefined,
+            });
+            return sendSuccess(res, 'Product updated successfully', product);
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async deleteProduct(req, res, next) {
+        try {
+            const result = await ProductService.deleteProduct(req.params.id, req.user.userId, req.user.role);
+            return sendSuccess(res, result.message);
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async uploadImage(req, res, next) {
+        try {
+            if (!req.file) {
+                return sendSuccess(res, 'No image file uploaded', null, 400);
+            }
+            const imageUrl = `/uploads/${req.file.filename}`;
+            const isPrimary = req.body.isPrimary === 'true' || req.body.isPrimary === true;
+            const image = await ProductService.addProductImage(req.params.id, imageUrl, isPrimary);
+            return sendSuccess(res, 'Product image uploaded successfully', image, 201);
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+}

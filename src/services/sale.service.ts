@@ -27,8 +27,8 @@ export class SaleService {
       let totalConsigneeEarnings = 0
       let totalAdminEarnings = 0
 
-      const saleItemsToCreate = []
-      const commissionsToCreate = []
+      const saleItemsToCreate: any[] = []
+      const commissionsToCreate: any[] = []
 
       for (const item of data.items) {
         const product = await tx.product.findUnique({

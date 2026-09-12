@@ -20,7 +20,7 @@ router.post(
 
 router.put(
   '/:id/status',
-  authorize('ADMIN', 'CONSIGNOR'),
+  authorize('CONSIGNOR'),
   validateRequest(updateReturnStatusSchema),
   ReturnController.updateReturnStatus
 )

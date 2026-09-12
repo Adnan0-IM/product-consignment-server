@@ -1,43 +1,50 @@
 import { prisma } from '../config/prisma.js'
 import { NotFoundError, BadRequestError } from '../utils/errors.js'
-import { PaymentMethod, PaymentStatus, PaymentType } from '@prisma/client'
+import { PaymentCategory } from '@prisma/client'
 
 export class PaymentService {
   static async createPayment(data: {
-    userId: string
+    payerId: string
+    receiverId: string
     amount: number
-    type?: PaymentType
-    method?: PaymentMethod
+    category?: PaymentCategory
     notes?: string
   }) {
-    const user = await prisma.user.findUnique({ where: { id: data.userId } })
-    if (!user) {
-      throw new NotFoundError('User not found')
+    const payer = await prisma.user.findUnique({ where: { id: data.payerId } })
+    if (!payer) {
+      throw new NotFoundError('Consignee payer not found')
+    }
+    const receiver = await prisma.user.findUnique({ where: { id: data.receiverId } })
+    if (!receiver) {
+      throw new NotFoundError('Consignor recipient not found')
     }
 
-    const reference = `PAY-${Date.now().toString().slice(-8)}`
+    const reference = `CASH-${Date.now().toString().slice(-8)}`
 
     const payment = await prisma.payment.create({
       data: {
         reference,
-        userId: data.userId,
+        payerId: data.payerId,
+        receiverId: data.receiverId,
         amount: data.amount,
-        type: data.type || 'CONSIGNOR_PAYOUT',
-        method: data.method || 'TRANSFER',
-        status: 'PENDING',
+        category: data.category || 'SETTLEMENT',
+        method: 'CASH',
+        status: 'PAID',
         notes: data.notes,
       },
       include: {
-        user: { select: { firstName: true, lastName: true, email: true, role: true } },
+        payer: { select: { id: true, firstName: true, lastName: true, email: true, role: true } },
+        receiver: { select: { id: true, firstName: true, lastName: true, email: true, role: true } },
       },
     })
 
+    // Send notification to Consignee (payer) that payment was recorded
     await prisma.notification.create({
       data: {
-        userId: data.userId,
-        title: 'Payment Processed / Initiated',
-        message: `A payment request of $${data.amount} (${reference}) has been initiated.`,
-        type: 'INFO',
+        userId: data.payerId,
+        title: 'Cash Payment Recorded',
+        message: `Cash payment of ₦${data.amount} (${reference}) recorded by consignor ${payment.receiver.firstName} ${payment.receiver.lastName}`,
+        type: 'SUCCESS',
       },
     })
 
@@ -47,25 +54,18 @@ export class PaymentService {
   static async getPayments(query: {
     userId?: string
     userRole?: string
-    status?: PaymentStatus
-    type?: PaymentType
     page?: number
     limit?: number
   }) {
     const page = Number(query.page) || 1
-    const limit = Number(query.limit) || 10
+    const limit = Number(query.limit) || 100
     const skip = (page - 1) * limit
 
     const where: any = {}
 
-    if (query.userRole !== 'ADMIN' && query.userId) {
-      where.userId = query.userId
-    } else if (query.userId) {
-      where.userId = query.userId
+    if (query.userId) {
+      where.OR = [{ payerId: query.userId }, { receiverId: query.userId }]
     }
-
-    if (query.status) where.status = query.status
-    if (query.type) where.type = query.type
 
     const [payments, total] = await Promise.all([
       prisma.payment.findMany({
@@ -74,7 +74,8 @@ export class PaymentService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { id: true, firstName: true, lastName: true, email: true, role: true } },
+          payer: { select: { id: true, firstName: true, lastName: true, email: true, role: true } },
+          receiver: { select: { id: true, firstName: true, lastName: true, email: true, role: true } },
         },
       }),
       prisma.payment.count({ where }),
@@ -91,39 +92,61 @@ export class PaymentService {
     }
   }
 
-  static async updatePaymentStatus(
-    id: string,
-    status: PaymentStatus,
-    notes?: string
-  ) {
-    const payment = await prisma.payment.findUnique({ where: { id } })
-    if (!payment) {
-      throw new NotFoundError('Payment record not found')
-    }
+  static async getPaymentSummary(userId: string, userRole: string) {
+    let totalSalesValue = 0
+    let totalCashPaid = 0
 
-    const updated = await prisma.payment.update({
-      where: { id },
-      data: {
-        status,
-        ...(notes && { notes }),
-        processedAt: status === 'PAID' ? new Date() : payment.processedAt,
-      },
-      include: {
-        user: { select: { id: true, firstName: true, lastName: true, email: true } },
-      },
-    })
-
-    if (status === 'PAID') {
-      await prisma.notification.create({
-        data: {
-          userId: payment.userId,
-          title: 'Payout Completed',
-          message: `Your payment of $${payment.amount} (Ref: ${payment.reference}) has been marked as PAID.`,
-          type: 'SUCCESS',
-        },
+    if (userRole === 'CONSIGNEE') {
+      // Consignee sales total - what they owe to consignors + admin
+      // This is totalSaleAmount - consigneeEarnings (their commission)
+      const sales = await prisma.sale.findMany({
+        where: { consigneeId: userId },
+        select: { totalAmount: true, consigneeEarnings: true },
       })
+      // What consignee owes = total amount - their commission (goes to consignors + admin)
+      totalSalesValue = sales.reduce((acc, s) => acc + (Number(s.totalAmount) - Number(s.consigneeEarnings)), 0)
+
+      // Payments made by consignee
+      const payments = await prisma.payment.findMany({
+        where: { payerId: userId, status: 'PAID' },
+        select: { amount: true },
+      })
+      totalCashPaid = payments.reduce((acc, p) => acc + Number(p.amount), 0)
+    } else if (userRole === 'CONSIGNOR') {
+      // Consignor earnings - what they should receive (their share of sales)
+      const commissions = await prisma.commission.findMany({
+        where: { consignorId: userId },
+        select: { consignorShare: true },
+      })
+      totalSalesValue = commissions.reduce((acc, c) => acc + Number(c.consignorShare), 0)
+
+      // Payments received by consignor
+      const payments = await prisma.payment.findMany({
+        where: { receiverId: userId, status: 'PAID' },
+        select: { amount: true },
+      })
+      totalCashPaid = payments.reduce((acc, p) => acc + Number(p.amount), 0)
     }
 
-    return updated
+    const balance = totalSalesValue - totalCashPaid
+    let paymentStatus = 'UNPAID'
+
+    if (totalCashPaid > totalSalesValue) {
+      paymentStatus = 'ADVANCE_CREDIT'
+    } else if (balance <= 0 && totalSalesValue > 0) {
+      paymentStatus = 'PAID'
+    } else if (totalCashPaid > 0 && totalCashPaid < totalSalesValue) {
+      paymentStatus = 'PARTIALLY_PAID'
+    } else if (totalSalesValue === 0 && totalCashPaid === 0) {
+      paymentStatus = 'SETTLED'
+    }
+
+    return {
+      totalSalesValue,
+      totalCashPaid,
+      outstandingBalance: Math.max(0, balance),
+      advanceAmount: totalCashPaid > totalSalesValue ? totalCashPaid - totalSalesValue : 0,
+      paymentStatus,
+    }
   }
 }

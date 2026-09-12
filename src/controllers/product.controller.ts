@@ -38,8 +38,20 @@ export class ProductController {
         imageUrl = `/uploads/${req.file.filename}`
       }
 
+      let categoryIds: string[] | undefined = undefined
+      if (req.body.categoryIds) {
+        if (Array.isArray(req.body.categoryIds)) {
+          categoryIds = req.body.categoryIds
+        } else if (typeof req.body.categoryIds === 'string') {
+          categoryIds = req.body.categoryIds.split(',').map((id: string) => id.trim()).filter(Boolean)
+        }
+      } else if (req.body.categoryId) {
+        categoryIds = [req.body.categoryId]
+      }
+
       const product = await ProductService.createProduct(consignorId, {
         ...req.body,
+        categoryIds,
         quantity: req.body.quantity ? Number(req.body.quantity) : 0,
         unitPrice: Number(req.body.unitPrice),
         consignorRate: req.body.consignorRate ? Number(req.body.consignorRate) : undefined,
